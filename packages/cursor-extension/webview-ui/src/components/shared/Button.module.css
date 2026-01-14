@@ -1,0 +1,36 @@
+.button {
+  padding: 8px 16px;
+  border: none;
+  cursor: pointer;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.button:hover {
+  opacity: 0.9;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.primary {
+  background: var(--button-bg);
+  color: var(--button-fg);
+}
+
+.secondary {
+  background: var(--button-secondary-bg);
+  color: var(--button-secondary-fg);
+}
+
+.danger {
+  background: var(--error);
+  color: var(--button-fg);
+}
+
+.danger:hover {
+  opacity: 0.8;
+}

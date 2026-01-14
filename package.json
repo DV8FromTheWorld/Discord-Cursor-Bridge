@@ -1,0 +1,27 @@
+{
+  "name": "discord-cursor-bridge",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Bidirectional bridge between Discord and Cursor AI agent chats",
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "typecheck": "turbo run typecheck"
+  },
+  "keywords": [
+    "mcp",
+    "discord",
+    "ai",
+    "cursor",
+    "llm"
+  ],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "turbo": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "packageManager": "pnpm@10.12.4"
+}

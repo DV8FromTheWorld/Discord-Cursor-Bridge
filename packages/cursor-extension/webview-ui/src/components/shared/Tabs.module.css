@@ -1,0 +1,65 @@
+/* Main tabs (top-level navigation) */
+.mainTabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+
+.mainTab {
+  padding: 10px 20px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  border-radius: 0;
+  margin: 0;
+  opacity: 0.7;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.mainTab:hover:not(:disabled) {
+  opacity: 1;
+}
+
+.mainTabActive {
+  opacity: 1;
+  border-bottom-color: var(--button-bg);
+  font-weight: 600;
+}
+
+/* Sub tabs (within sections) */
+.subTabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 12px;
+}
+
+.subTab {
+  padding: 8px 16px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  border-radius: 0;
+  margin: 0;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+.subTab:first-child {
+  border-radius: 4px 0 0 4px;
+}
+
+.subTab:last-child {
+  border-radius: 0 4px 4px 0;
+}
+
+.subTabActive {
+  background: var(--button-bg);
+  color: var(--button-fg);
+  border-color: var(--button-bg);
+}

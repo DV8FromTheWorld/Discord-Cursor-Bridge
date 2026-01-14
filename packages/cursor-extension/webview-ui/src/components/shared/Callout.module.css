@@ -1,0 +1,20 @@
+.callout {
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 16px;
+}
+
+.callout a {
+  color: var(--link);
+  cursor: pointer;
+}
+
+.info {
+  background: var(--callout-info-bg);
+  border: 1px solid var(--callout-info-border);
+}
+
+.warning {
+  background: var(--callout-warning-bg);
+  border: 1px solid var(--callout-warning-border);
+}

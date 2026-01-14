@@ -1,0 +1,21 @@
+.tokenStatus {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.success {
+  color: var(--success);
+}
+
+.error {
+  color: var(--error);
+}
+
+.clearButton {
+  margin-left: auto;
+}
+
+.tabContent {
+  display: block;
+}

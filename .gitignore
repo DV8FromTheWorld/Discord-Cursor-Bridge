@@ -1,0 +1,51 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+out/
+*.vsix
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# IDE and editor
+.vscode/
+!.vscode/launch.json
+!.vscode/extensions.json
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Turbo
+.turbo/
+
+# Test and coverage
+coverage/
+.nyc_output/
+
+# Runtime data
+chat-mappings.json
+*.pid
+*.seed
+
+# Project config (contains thread IDs)
+.cursor/discord-bridge.json
+
+# Lock files (keep pnpm-lock.yaml, ignore others)
+package-lock.json
+yarn.lock

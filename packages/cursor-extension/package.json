@@ -1,0 +1,89 @@
+{
+  "name": "discord-cursor-bridge",
+  "displayName": "Discord Cursor Bridge",
+  "description": "Bridge between Discord threads and Cursor agent chats",
+  "version": "0.1.0",
+  "publisher": "discord-cursor",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["Other"],
+  "extensionKind": ["ui", "workspace"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "discordBridge.showPanel",
+        "title": "Discord Bridge: Open Settings"
+      },
+      {
+        "command": "discordBridge.reconnect",
+        "title": "Discord Bridge: Reconnect"
+      },
+      {
+        "command": "discordBridge.startWatcher",
+        "title": "Discord Bridge: Start Chat Watcher"
+      },
+      {
+        "command": "discordBridge.stopWatcher",
+        "title": "Discord Bridge: Stop Chat Watcher"
+      },
+      {
+        "command": "discordBridge.showStatus",
+        "title": "Discord Bridge: Show Status"
+      },
+      {
+        "command": "discordBridge.clearKnownChats",
+        "title": "Discord Bridge: Clear Known Chats"
+      },
+      {
+        "command": "discordBridge.resyncThreadName",
+        "title": "Discord Bridge: Resync Thread Name"
+      }
+    ],
+    "configuration": {
+      "title": "Discord Cursor Bridge",
+      "properties": {
+        "discordBridge.httpPort": {
+          "type": "number",
+          "default": 19876,
+          "description": "Port for the extension's HTTP server (used by MCP)"
+        },
+        "discordBridge.autoConnect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically connect to Discord on startup"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "npm run build:extension && npm run build:mcp && npm run build:webview",
+    "build:extension": "tsc -p ./tsconfig.json",
+    "build:mcp": "tsc -p ./tsconfig.mcp.json",
+    "build:webview": "cd webview-ui && node esbuild.js --production",
+    "dev": "tsc -watch -p ./",
+    "dev:webview": "cd webview-ui && node esbuild.js --watch",
+    "lint": "eslint src --ext ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "discord.js": "^14.14.1",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/react": "^18.2.0",
+    "@types/react-dom": "^18.2.0",
+    "@types/vscode": "^1.85.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0"
+  }
+}

@@ -1,0 +1,92 @@
+/* Global styles - not scoped */
+:root {
+  --bg: var(--vscode-editor-background);
+  --fg: var(--vscode-editor-foreground);
+  --border: var(--vscode-widget-border);
+  --input-bg: var(--vscode-input-background);
+  --input-fg: var(--vscode-input-foreground);
+  --button-bg: var(--vscode-button-background);
+  --button-fg: var(--vscode-button-foreground);
+  --button-secondary-bg: var(--vscode-button-secondaryBackground);
+  --button-secondary-fg: var(--vscode-button-secondaryForeground);
+  --success: var(--vscode-testing-iconPassed);
+  --error: var(--vscode-testing-iconFailed);
+  --warning: var(--vscode-editorWarning-foreground);
+  --link: var(--vscode-textLink-foreground);
+  --list-hover: var(--vscode-list-hoverBackground);
+  --sidebar-bg: var(--vscode-sideBar-background);
+  --terminal-bg: var(--vscode-terminal-background);
+  --callout-info-bg: var(--vscode-inputValidation-infoBackground);
+  --callout-info-border: var(--vscode-inputValidation-infoBorder);
+  --callout-warning-bg: var(--vscode-inputValidation-warningBackground);
+  --callout-warning-border: var(--vscode-inputValidation-warningBorder);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  padding: 20px;
+  color: var(--fg);
+  background: var(--bg);
+  margin: 0;
+}
+
+h2 {
+  margin-top: 0;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 10px;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  padding: 8px;
+  border: 1px solid var(--border);
+  background: var(--input-bg);
+  color: var(--input-fg);
+  border-radius: 4px;
+  margin-bottom: 8px;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+button {
+  padding: 8px 16px;
+  border: none;
+  background: var(--button-bg);
+  color: var(--button-fg);
+  cursor: pointer;
+  border-radius: 4px;
+  margin-right: 8px;
+  font-family: inherit;
+  font-size: inherit;
+}
+
+button:hover {
+  opacity: 0.9;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -1,0 +1,17 @@
+.settingRow {
+  margin-bottom: 16px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.settingRow:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.settingLabel {
+  font-weight: 600;
+  margin-bottom: 6px;
+  display: block;
+}

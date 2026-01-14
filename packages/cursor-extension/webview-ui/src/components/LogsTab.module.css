@@ -1,0 +1,15 @@
+.logsContainer {
+  background: var(--terminal-bg);
+  padding: 12px;
+  border-radius: 4px;
+  max-height: 300px;
+  overflow-y: auto;
+  font-family: var(--vscode-editor-font-family);
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.clearButton {
+  margin-bottom: 8px;
+}

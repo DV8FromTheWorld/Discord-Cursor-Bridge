@@ -1,0 +1,14 @@
+.helpText {
+  font-size: 0.85em;
+  opacity: 0.7;
+  margin-top: 4px;
+}
+
+.helpText a {
+  color: var(--link);
+  cursor: pointer;
+}
+
+.helpText a:hover {
+  text-decoration: underline;
+}
