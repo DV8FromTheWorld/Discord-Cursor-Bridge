@@ -737,20 +737,25 @@ export class DiscordClientManager {
       const notifyMode = config?.threadCreationNotify || 'silent';
       this.outputChannel.appendLine(`Inviting ${userIds.length} user(s) to thread ${thread.name} (mode: ${notifyMode})`);
 
-      // Add all users to the thread
-      for (const userId of userIds) {
-        try {
-          await thread.members.add(userId);
-          this.outputChannel.appendLine(`Added user ${userId} to thread`);
-        } catch (error: any) {
-          // Log but don't fail - user might not be in the server, etc.
-          this.outputChannel.appendLine(`Failed to add user ${userId}: ${error.message}`);
-        }
+      // Add users to thread via silent mention-and-delete
+      // This avoids the notification ping that thread.members.add() causes
+      const mentions = userIds.map(id => `<@${id}>`).join(' ');
+      try {
+        const inviteMessage = await thread.send({
+          content: mentions,
+          flags: MessageFlags.SuppressNotifications,
+        });
+        this.outputChannel.appendLine(`Sent silent invite mention to ${userIds.length} user(s)`);
+        
+        // Delete the invite message to clean up
+        await inviteMessage.delete();
+        this.outputChannel.appendLine(`Deleted invite message`);
+      } catch (error: any) {
+        this.outputChannel.appendLine(`Failed to add users via mention: ${error.message}`);
       }
 
-      // If ping mode, send a message mentioning all users
+      // If ping mode, send an additional visible message mentioning all users
       if (notifyMode === 'ping' && userIds.length > 0) {
-        const mentions = userIds.map(id => `<@${id}>`).join(' ');
         try {
           await thread.send(`${mentions} New agent session started!`);
           this.outputChannel.appendLine(`Pinged users in thread`);
