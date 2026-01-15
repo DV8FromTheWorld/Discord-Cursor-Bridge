@@ -21,8 +21,34 @@ import {
   McpError,
 } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
+import * as fs from 'fs';
+import * as os from 'os';
 
-const EXTENSION_PORT = 19876;
+// Debug logging to file (can't use console.log - MCP uses stdio)
+const LOG_FILE = `${os.tmpdir()}/discord-bridge-mcp-debug.log`;
+
+function debugLog(message: string) {
+  const timestamp = new Date().toISOString();
+  fs.appendFileSync(LOG_FILE, `[${timestamp}] ${message}\n`);
+}
+
+// Log environment on startup to help debug multi-instance routing
+debugLog('=== MCP Server Starting ===');
+debugLog(`cwd: ${process.cwd()}`);
+debugLog(`ppid: ${process.ppid}`);
+debugLog(`pid: ${process.pid}`);
+debugLog(`argv: ${JSON.stringify(process.argv)}`);
+debugLog(`env keys: ${Object.keys(process.env).join(', ')}`);
+// Log potentially relevant env vars
+for (const key of Object.keys(process.env)) {
+  if (key.includes('CURSOR') || key.includes('VSCODE') || key.includes('WORKSPACE') || key.includes('CODE')) {
+    debugLog(`env.${key}: ${process.env[key]}`);
+  }
+}
+debugLog('=== End Startup Info ===');
+
+const DEFAULT_PORT = 19876;
+const PORT_RANGE_SIZE = 10; // Ports 19876-19885
 
 // Input schemas
 const PostToThreadSchema = z.object({
@@ -141,11 +167,9 @@ The developer trusts you to keep them informed. Proactive communication via Disc
 
 class DiscordBridgeMCP {
   private server: Server;
-  private baseUrl: string;
+  private discoveredPort: number | null = null;
 
   constructor() {
-    this.baseUrl = `http://127.0.0.1:${EXTENSION_PORT}`;
-
     this.server = new Server(
       {
         name: 'discord-bridge',
@@ -162,7 +186,110 @@ class DiscordBridgeMCP {
     this.setupHandlers();
   }
 
+  /**
+   * Get the workspace folder paths from the environment.
+   * Cursor sets WORKSPACE_FOLDER_PATHS when spawning the MCP server.
+   */
+  private getExpectedWorkspaceFolders(): string[] {
+    const envValue = process.env.WORKSPACE_FOLDER_PATHS;
+    if (!envValue) {
+      return [];
+    }
+    // Split on comma in case there are multiple workspace folders
+    return envValue.split(',').map(p => p.trim()).filter(p => p.length > 0);
+  }
+
+  /**
+   * Check if the health response's workspace folders match our expected workspace.
+   */
+  private workspaceMatches(healthWorkspaceFolders: string[]): boolean {
+    const expected = this.getExpectedWorkspaceFolders();
+    if (expected.length === 0) {
+      // No workspace info from env, accept any server (fallback behavior)
+      debugLog('No WORKSPACE_FOLDER_PATHS in env, accepting any server');
+      return true;
+    }
+    
+    // Check if any of our expected folders match any of the server's folders
+    for (const expectedFolder of expected) {
+      if (healthWorkspaceFolders.includes(expectedFolder)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * Discover which port the extension is listening on.
+   * Tries ports in the range DEFAULT_PORT to DEFAULT_PORT + PORT_RANGE_SIZE - 1.
+   * Matches against workspace folder paths to find the correct instance.
+   * Caches the result for subsequent calls.
+   */
+  private async discoverPort(): Promise<number> {
+    // Return cached port if already discovered
+    if (this.discoveredPort !== null) {
+      return this.discoveredPort;
+    }
+
+    const startPort = DEFAULT_PORT;
+    const endPort = DEFAULT_PORT + PORT_RANGE_SIZE;
+    const expectedFolders = this.getExpectedWorkspaceFolders();
+    
+    debugLog(`Discovering port... Expected workspace folders: ${JSON.stringify(expectedFolders)}`);
+
+    // First pass: look for exact workspace match
+    for (let port = startPort; port < endPort; port++) {
+      try {
+        const response = await fetch(`http://127.0.0.1:${port}/health`, {
+          method: 'GET',
+          signal: AbortSignal.timeout(500), // 500ms timeout per port
+        });
+        
+        if (response.ok) {
+          const data = await response.json() as { 
+            status?: string;
+            workspaceFolders?: string[];
+            workspaceName?: string;
+          };
+          
+          if (data.status === 'ok') {
+            const serverFolders = data.workspaceFolders || [];
+            debugLog(`Port ${port}: status=ok, workspaceFolders=${JSON.stringify(serverFolders)}, workspaceName=${data.workspaceName}`);
+            
+            if (this.workspaceMatches(serverFolders)) {
+              debugLog(`Port ${port}: Workspace matches! Using this port.`);
+              this.discoveredPort = port;
+              return port;
+            } else {
+              debugLog(`Port ${port}: Workspace mismatch, trying next...`);
+            }
+          }
+        }
+      } catch {
+        // Port not available or not our server, try next
+        continue;
+      }
+    }
+
+    // If we had expected folders but found no match, give a specific error
+    if (expectedFolders.length > 0) {
+      throw new McpError(
+        ErrorCode.InternalError,
+        `Discord Bridge extension not found for workspace ${expectedFolders.join(', ')}. ` +
+        `Please ensure the extension is active in the correct Cursor window.`
+      );
+    }
+
+    throw new McpError(
+      ErrorCode.InternalError,
+      `Discord Bridge extension not running. Could not find extension on ports ${startPort}-${endPort - 1}. Please ensure the extension is active in Cursor.`
+    );
+  }
+
   private async callExtension(endpoint: string, payload: any, method: 'GET' | 'POST' = 'POST'): Promise<any> {
+    const port = await this.discoverPort();
+    const baseUrl = `http://127.0.0.1:${port}`;
+
     try {
       const options: RequestInit = {
         method,
@@ -173,7 +300,7 @@ class DiscordBridgeMCP {
         options.body = JSON.stringify(payload);
       }
 
-      const response = await fetch(`${this.baseUrl}${endpoint}`, options);
+      const response = await fetch(`${baseUrl}${endpoint}`, options);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -182,9 +309,11 @@ class DiscordBridgeMCP {
       return await response.json();
     } catch (error: any) {
       if (error.code === 'ECONNREFUSED') {
+        // Port might have changed (e.g., extension restarted), clear cache and try again
+        this.discoveredPort = null;
         throw new McpError(
           ErrorCode.InternalError,
-          'Discord Bridge extension not running. Please ensure the extension is active in Cursor.'
+          'Discord Bridge extension connection lost. Please retry.'
         );
       }
       throw new McpError(ErrorCode.InternalError, `Failed to communicate with extension: ${error.message}`);

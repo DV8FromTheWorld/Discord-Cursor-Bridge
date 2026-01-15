@@ -32,7 +32,7 @@ export async function activateUI(context: vscode.ExtensionContext): Promise<void
   configManager = new ConfigManager(context, outputChannel);
   statusBar = new StatusBarManager();
   webviewPanel = new WebviewPanelManager(context, configManager, outputChannel);
-  httpServer = new HttpServer(19876, outputChannel, configManager);
+  httpServer = new HttpServer(undefined, outputChannel, configManager);
 
   context.subscriptions.push({ dispose: () => statusBar.dispose() });
   context.subscriptions.push({ dispose: () => webviewPanel.dispose() });

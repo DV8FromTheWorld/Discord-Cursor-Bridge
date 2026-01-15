@@ -107,7 +107,11 @@ export interface PostToThreadResult {
 
 export interface SendFileToThreadParams {
   threadId?: string;
-  filePath: string;
+  /** File path (used when file is accessible locally, e.g., same machine) */
+  filePath?: string;
+  /** Base64-encoded file content (used for remote scenarios where file is on local machine) */
+  fileContentBase64?: string;
+  /** File name (required when using fileContentBase64, optional with filePath) */
   fileName?: string;
   description?: string;
 }

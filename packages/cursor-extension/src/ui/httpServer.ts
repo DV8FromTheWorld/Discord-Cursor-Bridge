@@ -5,12 +5,15 @@
  */
 
 import * as http from 'http';
+import * as fs from 'fs';
+import * as path from 'path';
 import * as vscode from 'vscode';
 import { sendMessageToChat } from './messageHandler';
 import { ConfigManager } from './configManager';
 import { Commands, PostToThreadParams, CreateThreadParams, SendFileToThreadParams, StartTypingParams, StopTypingParams, RenameThreadParams, ResolveThreadIdResult, ForwardUserPromptParams, AskQuestionParams, AskQuestionResult } from '../shared/commands';
 
 const DEFAULT_PORT = 19876;
+const PORT_RANGE_SIZE = 10; // Try ports 19876-19885
 
 export class HttpServer {
   private server: http.Server | null = null;
@@ -28,28 +31,63 @@ export class HttpServer {
     this.configManager = configManager;
   }
 
-  async start(): Promise<void> {
-    if (this.server) {
-      return;
-    }
+  /**
+   * Get the port the server is listening on (or will listen on)
+   */
+  getPort(): number {
+    return this.port;
+  }
 
+  /**
+   * Try to start on a specific port
+   */
+  private tryPort(port: number): Promise<void> {
     return new Promise((resolve, reject) => {
-      this.server = http.createServer((req, res) => this.handleRequest(req, res));
+      const server = http.createServer((req, res) => this.handleRequest(req, res));
 
-      this.server.on('error', (error: any) => {
+      server.on('error', (error: any) => {
         if (error.code === 'EADDRINUSE') {
-          this.outputChannel.appendLine(`Port ${this.port} already in use`);
-          reject(new Error(`Port ${this.port} already in use`));
+          reject(new Error(`Port ${port} already in use`));
         } else {
           reject(error);
         }
       });
 
-      this.server.listen(this.port, '127.0.0.1', () => {
-        this.outputChannel.appendLine(`HTTP server listening on http://127.0.0.1:${this.port}`);
+      server.listen(port, '127.0.0.1', () => {
+        this.server = server;
+        this.port = port;
         resolve();
       });
     });
+  }
+
+  /**
+   * Start the server, automatically finding an available port if needed.
+   * Tries ports from DEFAULT_PORT to DEFAULT_PORT + PORT_RANGE_SIZE - 1
+   */
+  async start(): Promise<void> {
+    if (this.server) {
+      return;
+    }
+
+    const startPort = DEFAULT_PORT;
+    const endPort = DEFAULT_PORT + PORT_RANGE_SIZE;
+
+    for (let port = startPort; port < endPort; port++) {
+      try {
+        await this.tryPort(port);
+        this.outputChannel.appendLine(`HTTP server listening on http://127.0.0.1:${port}`);
+        return;
+      } catch (error: any) {
+        if (error.message.includes('already in use')) {
+          this.outputChannel.appendLine(`Port ${port} in use, trying next...`);
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new Error(`Could not find available port in range ${startPort}-${endPort - 1}`);
   }
 
   stop(): void {
@@ -154,9 +192,14 @@ export class HttpServer {
       // Workspace part might not be available
     }
 
+    // Include workspace folder paths for MCP server to match against
+    // This enables multi-Cursor-instance support
+    const workspaceFolders = vscode.workspace.workspaceFolders?.map(f => f.uri.fsPath) || [];
+
     this.sendJson(res, 200, {
       status: 'ok',
       workspaceName: vscode.workspace.name || 'unnamed',
+      workspaceFolders,
       discordConnected,
     });
   }
@@ -238,10 +281,28 @@ export class HttpServer {
     }
 
     try {
-      // Forward to workspace part
+      // Read the file locally (UI extension runs on the same machine as MCP server)
+      // and base64 encode it for transfer to the workspace extension (which may be remote)
+      if (!fs.existsSync(data.filePath)) {
+        this.sendJson(res, 400, { error: `File not found: ${data.filePath}` });
+        return;
+      }
+
+      const fileContent = fs.readFileSync(data.filePath);
+      const fileContentBase64 = fileContent.toString('base64');
+      const fileName = data.fileName || path.basename(data.filePath);
+
+      this.outputChannel.appendLine(`[HTTP] send_file_to_thread: read ${fileContent.length} bytes from ${data.filePath}, sending as base64`);
+
+      // Forward to workspace part with base64 content instead of file path
       const result = await vscode.commands.executeCommand<{ success: boolean; error?: string }>(
         Commands.SEND_FILE_TO_THREAD,
-        { ...data, threadId }
+        {
+          threadId,
+          fileContentBase64,
+          fileName,
+          description: data.description,
+        } as SendFileToThreadParams
       );
 
       if (result?.success) {

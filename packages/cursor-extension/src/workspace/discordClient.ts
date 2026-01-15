@@ -901,14 +901,28 @@ export class DiscordClientManager {
         return { success: false, error: `Thread ${threadId} not found` };
       }
 
-      // Check if file exists
-      if (!fs.existsSync(params.filePath)) {
-        return { success: false, error: `File not found: ${params.filePath}` };
-      }
+      let attachment: AttachmentBuilder;
+      let fileName: string;
 
-      // Create attachment
-      const fileName = params.fileName || path.basename(params.filePath);
-      const attachment = new AttachmentBuilder(params.filePath, { name: fileName });
+      // Support two modes:
+      // 1. fileContentBase64 + fileName - for remote IDE scenarios where file is on local machine
+      // 2. filePath - for local scenarios where file is directly accessible
+      if (params.fileContentBase64) {
+        // Decode base64 content and create attachment from buffer
+        const buffer = Buffer.from(params.fileContentBase64, 'base64');
+        fileName = params.fileName || 'file';
+        attachment = new AttachmentBuilder(buffer, { name: fileName });
+        this.outputChannel.appendLine(`Creating attachment from base64 content (${buffer.length} bytes)`);
+      } else if (params.filePath) {
+        // Read file directly from filesystem (local mode)
+        if (!fs.existsSync(params.filePath)) {
+          return { success: false, error: `File not found: ${params.filePath}` };
+        }
+        fileName = params.fileName || path.basename(params.filePath);
+        attachment = new AttachmentBuilder(params.filePath, { name: fileName });
+      } else {
+        return { success: false, error: 'No file content or file path provided' };
+      }
 
       // Send with optional description
       await thread.send({
@@ -1679,6 +1693,13 @@ export class DiscordClientManager {
         return mapping;
       }
       await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    }
+    
+    // Final check after timeout - catch mappings that appeared during the last sleep interval
+    const finalMapping = this.getRecentUnclaimedMapping(freshnessMs);
+    if (finalMapping) {
+      this.outputChannel.appendLine(`[waitForNewUnclaimedMapping] FINAL CHECK found mapping after timeout`);
+      return finalMapping;
     }
     
     return undefined;
