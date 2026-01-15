@@ -24,7 +24,7 @@ let webviewPanel: WebviewPanelManager;
 let outputChannel: vscode.OutputChannel;
 
 export async function activateUI(context: vscode.ExtensionContext): Promise<void> {
-  outputChannel = vscode.window.createOutputChannel('Discord Bridge');
+  outputChannel = vscode.window.createOutputChannel('Discord Bridge (UI)');
   context.subscriptions.push(outputChannel);
   outputChannel.appendLine('Discord Bridge UI extension activating...');
 

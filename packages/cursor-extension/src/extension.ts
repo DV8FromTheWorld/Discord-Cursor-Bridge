@@ -23,7 +23,7 @@ import { activateUI, deactivateUI } from './ui/extension';
 import { activateWorkspace, deactivateWorkspace } from './workspace/extension';
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  const outputChannel = vscode.window.createOutputChannel('Discord Bridge');
+  const outputChannel = vscode.window.createOutputChannel('Discord Bridge (Main)');
   context.subscriptions.push(outputChannel);
 
   outputChannel.appendLine('Discord Bridge activating...');
