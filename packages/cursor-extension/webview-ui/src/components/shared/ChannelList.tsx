@@ -25,35 +25,43 @@ export default function ChannelList({ channels, onSelect }: Props) {
     return { grouped, uncategorized };
   }, [channels]);
 
+  const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const channelId = e.target.value;
+    if (!channelId) return;
+    
+    const channel = channels.find(c => c.id === channelId);
+    if (channel) {
+      onSelect(channel);
+    }
+  };
+
   if (channels.length === 0) {
     return <div className={styles.empty}>No text channels found in this server.</div>;
   }
 
   return (
-    <div className={styles.list}>
-      {groupedChannels.uncategorized.map(c => (
-        <div 
-          key={c.id} 
-          className={styles.item}
-          onClick={() => onSelect(c)}
-        >
-          #{c.name}
-        </div>
-      ))}
-      {Array.from(groupedChannels.grouped.entries()).map(([catName, chans]) => (
-        <React.Fragment key={catName}>
-          <div className={styles.category}>{catName}</div>
-          {chans.map(c => (
-            <div 
-              key={c.id} 
-              className={styles.item}
-              onClick={() => onSelect(c)}
-            >
-              #{c.name}
-            </div>
+    <select className={styles.select} onChange={handleChange} defaultValue="">
+      <option value="">Select a channel...</option>
+      
+      {groupedChannels.uncategorized.length > 0 && (
+        <optgroup label="Channels">
+          {groupedChannels.uncategorized.map(c => (
+            <option key={c.id} value={c.id}>
+              # {c.name}
+            </option>
           ))}
-        </React.Fragment>
+        </optgroup>
+      )}
+      
+      {Array.from(groupedChannels.grouped.entries()).map(([catName, chans]) => (
+        <optgroup key={catName} label={catName}>
+          {chans.map(c => (
+            <option key={c.id} value={c.id}>
+              # {c.name}
+            </option>
+          ))}
+        </optgroup>
       ))}
-    </div>
+    </select>
   );
 }

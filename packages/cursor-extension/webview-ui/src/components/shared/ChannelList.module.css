@@ -1,33 +1,5 @@
-.list {
-  max-height: 250px;
-  overflow-y: auto;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--input-bg);
-}
-
-.category {
-  padding: 6px 12px;
-  font-size: 0.75em;
-  text-transform: uppercase;
-  font-weight: 600;
-  opacity: 0.6;
-  background: var(--sidebar-bg);
-  border-bottom: 1px solid var(--border);
-}
-
-.item {
-  padding: 8px 12px;
-  cursor: pointer;
-  border-bottom: 1px solid var(--border);
-}
-
-.item:last-child {
-  border-bottom: none;
-}
-
-.item:hover {
-  background: var(--list-hover);
+.select {
+  width: 100%;
 }
 
 .empty {
