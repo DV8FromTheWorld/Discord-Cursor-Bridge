@@ -6,7 +6,7 @@
 import * as vscode from 'vscode';
 import { DiscordClientManager } from './discordClient';
 import { Commands } from '../shared/commands';
-import { getChatName, getArchivedChatIds, getAllChatIds, getActiveChatsRankedByRecency } from './cursorStorage';
+import { getChatName, getChatMetadata, getArchivedChatIds, getAllChatIds, getActiveChatsRankedByRecency } from './cursorStorage';
 
 export interface ChatWatcherEvents {
   onNewChat: (chatId: string, threadId: string) => void;
@@ -23,6 +23,8 @@ export class ChatWatcher {
   private pendingComposerId: string | null = null; // ONE unnamed composer waiting for a name
   private watcherInterval: NodeJS.Timeout | null = null;
   private pollCounter: number = 0; // Counter for less frequent checks
+  private installationTimestamp: number = 0; // When the extension was first installed for this workspace
+  private isPolling: boolean = false; // Guard against overlapping poll iterations
   private context: vscode.ExtensionContext;
   private discordClient: DiscordClientManager;
   private events: ChatWatcherEvents;
@@ -48,7 +50,13 @@ export class ChatWatcher {
     const savedArchived = this.context.workspaceState.get<string[]>('archivedChatIds', []);
     this.archivedChatIds = new Set(savedArchived);
     
+    // Load installation timestamp (0 if never set = first run)
+    this.installationTimestamp = this.context.workspaceState.get<number>('installationTimestamp', 0);
+    
     this.outputChannel.appendLine(`Loaded ${this.allTimeSeenIds.size} previously seen chat IDs, ${this.archivedChatIds.size} archived`);
+    if (this.installationTimestamp > 0) {
+      this.outputChannel.appendLine(`Installation timestamp: ${new Date(this.installationTimestamp).toISOString()}`);
+    }
   }
 
   private persistIds(): void {
@@ -56,10 +64,23 @@ export class ChatWatcher {
     this.context.workspaceState.update('archivedChatIds', [...this.archivedChatIds]);
   }
 
+  private persistInstallationTimestamp(): void {
+    this.context.workspaceState.update('installationTimestamp', this.installationTimestamp);
+  }
+
   public async start(): Promise<void> {
     if (this.watcherInterval) {
       this.outputChannel.appendLine('Watcher already running');
       return;
+    }
+
+    // Check if this is the first run in this workspace
+    const isFirstRun = this.installationTimestamp === 0;
+    if (isFirstRun) {
+      this.installationTimestamp = Date.now();
+      this.persistInstallationTimestamp();
+      this.outputChannel.appendLine(`[FIRST RUN] Extension installed at ${new Date(this.installationTimestamp).toISOString()}`);
+      this.outputChannel.appendLine(`[FIRST RUN] Pre-existing chats will NOT get threads unless they receive new activity`);
     }
 
     // Get initial state from database - record all existing chats
@@ -76,11 +97,54 @@ export class ChatWatcher {
 
     // Poll every second
     this.watcherInterval = setInterval(async () => {
+      // Guard against overlapping poll iterations
+      // Each poll can take >1s due to DB queries and Discord API calls
+      if (this.isPolling) {
+        return;
+      }
+      this.isPolling = true;
+
       try {
+        // Try to get selected composer IDs from Cursor's internal command
+        // This updates immediately when a new chat is created (before DB flush)
+        let selectedIds: string[] = [];
+        try {
+          const result = await vscode.commands.executeCommand<string[]>('composer.getOrderedSelectedComposerIds');
+          if (Array.isArray(result)) {
+            selectedIds = result;
+          }
+        } catch {
+          // Command may not exist in all Cursor versions
+        }
+
+        // Check selectedIds for new chats FIRST (these update immediately)
+        for (const id of selectedIds) {
+          if (!this.allTimeSeenIds.has(id)) {
+            // New chat detected via selectedComposerIds (immediate detection!)
+            this.outputChannel.appendLine(`[NEW CHAT via selectedIds] ${id}`);
+            this.allTimeSeenIds.add(id);
+            this.persistIds();
+
+            // Check if it has a name yet (probably not, since DB hasn't flushed)
+            const chatName = await getChatName(id, this.outputChannel);
+            if (chatName) {
+              this.outputChannel.appendLine(`[NEW CHAT] Has name "${chatName}", creating thread`);
+              await this.createThreadForChat(id, chatName);
+            } else {
+              // No name yet - store as pending
+              if (this.pendingComposerId && this.pendingComposerId !== id) {
+                this.outputChannel.appendLine(`[PENDING] Replacing pending composer ${this.pendingComposerId} with ${id}`);
+              }
+              this.pendingComposerId = id;
+              this.outputChannel.appendLine(`[PENDING] Composer ${id} (from selectedIds) waiting for name`);
+            }
+          }
+        }
+
         // Get all chat IDs from database (single source of truth)
         const allDbChatIds = await getAllChatIds(this.outputChannel);
 
-        // Check for new chats
+        // Check for new chats (fallback - in case selectedIds didn't catch them)
         for (const id of allDbChatIds) {
           if (!this.allTimeSeenIds.has(id)) {
             // Truly new chat detected!
@@ -181,6 +245,8 @@ export class ChatWatcher {
         }
       } catch (error: any) {
         this.outputChannel.appendLine(`Watcher error: ${error.message}`);
+      } finally {
+        this.isPolling = false;
       }
     }, 1000);
 
@@ -293,13 +359,29 @@ export class ChatWatcher {
     return this.allTimeSeenIds.size;
   }
 
-  public clearKnownChats(): void {
+  public clearKnownChats(resetInstallationTimestamp: boolean = false): void {
     this.allTimeSeenIds = new Set();
     this.archivedChatIds = new Set();
     this.pendingComposerId = null;
     this.persistIds();
-    this.outputChannel.appendLine('Cleared all known chat IDs and archived IDs');
-    vscode.window.showInformationMessage('Discord Bridge: Cleared known chats');
+    
+    if (resetInstallationTimestamp) {
+      this.installationTimestamp = 0;
+      this.persistInstallationTimestamp();
+      this.outputChannel.appendLine('Cleared all known chat IDs, archived IDs, and installation timestamp');
+      vscode.window.showInformationMessage('Discord Bridge: Cleared known chats and reset installation timestamp');
+    } else {
+      this.outputChannel.appendLine('Cleared all known chat IDs and archived IDs (installation timestamp preserved)');
+      vscode.window.showInformationMessage('Discord Bridge: Cleared known chats');
+    }
+  }
+
+  /**
+   * Get the installation timestamp (when the extension was first installed for this workspace).
+   * Returns 0 if never set.
+   */
+  public getInstallationTimestamp(): number {
+    return this.installationTimestamp;
   }
 
   /**
@@ -325,12 +407,16 @@ export class ChatWatcher {
     const chatId = this.pendingComposerId;
     const chatName = await getChatName(chatId, this.outputChannel);
     
-    if (!chatName) {
-      return { success: false, error: 'Pending composer still has no name' };
-    }
+    // Use real name if available, otherwise use placeholder
+    // NameSyncWatcher will rename the thread when the real name becomes available
+    const threadName = chatName || 'New conversation';
+    const isPlaceholder = !chatName;
 
-    this.outputChannel.appendLine(`[ON-DEMAND] Creating thread for pending composer ${chatId} with name "${chatName}"`);
-    const threadId = await this.createThreadForChat(chatId, chatName);
+    this.outputChannel.appendLine(
+      `[ON-DEMAND] Creating thread for pending composer ${chatId} with ` +
+      `${isPlaceholder ? 'placeholder ' : ''}name "${threadName}"`
+    );
+    const threadId = await this.createThreadForChat(chatId, threadName);
     
     if (threadId) {
       this.pendingComposerId = null;
@@ -355,14 +441,23 @@ export class ChatWatcher {
 
     const startTime = Date.now();
     const chatId = this.pendingComposerId;
+    let iterationCount = 0;
     
-    this.outputChannel.appendLine(`[WAIT] Waiting for pending composer ${chatId} to get a name (timeout: ${timeoutMs}ms)...`);
+    this.outputChannel.appendLine(`[WAIT] Waiting for pending composer ${chatId} to get a name (timeout: ${timeoutMs}ms, poll: ${pollIntervalMs}ms)...`);
 
     while (Date.now() - startTime < timeoutMs) {
+      iterationCount++;
+      const iterStart = Date.now();
       const chatName = await getChatName(chatId, this.outputChannel);
+      const elapsed = Date.now() - startTime;
+      
+      this.outputChannel.appendLine(
+        `[WAIT] Iteration ${iterationCount}: getChatName took ${Date.now() - iterStart}ms, ` +
+        `total elapsed: ${elapsed}ms, name: ${chatName ? 'FOUND' : 'not yet'}`
+      );
       
       if (chatName) {
-        this.outputChannel.appendLine(`[WAIT] Pending composer got name "${chatName}", creating thread...`);
+        this.outputChannel.appendLine(`[WAIT] Pending composer got name "${chatName}" after ${iterationCount} iterations, creating thread...`);
         const threadId = await this.createThreadForChat(chatId, chatName);
         
         if (threadId) {
@@ -376,14 +471,33 @@ export class ChatWatcher {
       await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
     }
 
-    this.outputChannel.appendLine(`[WAIT] Timeout waiting for pending composer to get a name`);
+    // Final check after timeout - catch names that appeared during the last sleep interval
+    const finalCheckStart = Date.now();
+    const finalName = await getChatName(chatId, this.outputChannel);
+    const totalElapsed = Date.now() - startTime;
+    
+    if (finalName) {
+      this.outputChannel.appendLine(`[WAIT] FINAL CHECK found name "${finalName}" after timeout (${totalElapsed}ms total), creating thread...`);
+      const threadId = await this.createThreadForChat(chatId, finalName);
+      
+      if (threadId) {
+        this.pendingComposerId = null;
+        return { success: true, threadId, chatId };
+      } else {
+        return { success: false, error: 'Failed to create thread' };
+      }
+    }
+
+    this.outputChannel.appendLine(`[WAIT] Timeout after ${iterationCount} iterations + final check, ${totalElapsed}ms elapsed (target: ${timeoutMs}ms)`);
     return { success: false, error: 'Timeout waiting for composer name' };
   }
 
   /**
    * Reconcile chats that were seen before Discord was ready.
-   * Creates threads for any chats in allTimeSeenIds that don't have mappings AND have names.
-   * Chats without names are skipped (they may be stale or will be handled as pending).
+   * Creates threads for any chats in allTimeSeenIds that:
+   * - Don't have mappings
+   * - Have names
+   * - Were updated AFTER the extension was installed (to avoid spam on first install)
    */
   public async reconcilePendingChats(): Promise<void> {
     if (!this.discordClient.isReady()) {
@@ -402,17 +516,41 @@ export class ChatWatcher {
     }
 
     this.outputChannel.appendLine(
-      `Reconciling ${chatsWithoutThreads.length} chats without threads`
+      `Reconciling ${chatsWithoutThreads.length} chats without threads (installation: ${new Date(this.installationTimestamp).toISOString()})`
     );
 
+    let created = 0;
+    let skippedNoName = 0;
+    let skippedPreExisting = 0;
+
     for (const chatId of chatsWithoutThreads) {
-      // Only create threads for chats that have names
-      const chatName = await getChatName(chatId, this.outputChannel);
-      if (chatName) {
-        await this.createThreadForChat(chatId, chatName);
-      } else {
-        this.outputChannel.appendLine(`Skipping ${chatId} during reconciliation - no name (may be stale)`);
+      // Get full metadata to check timestamps
+      const metadata = await getChatMetadata(chatId, this.outputChannel);
+      
+      if (!metadata || !metadata.name) {
+        this.outputChannel.appendLine(`Skipping ${chatId} - no name (may be stale)`);
+        skippedNoName++;
+        continue;
       }
+
+      // Only create threads for chats that were updated AFTER the extension was installed.
+      // This prevents spam when the extension is first installed and there are many old chats.
+      // Old chats that receive new activity will get threads once they're updated.
+      const lastActivity = metadata.lastUpdatedAt || metadata.createdAt || 0;
+      if (lastActivity < this.installationTimestamp) {
+        this.outputChannel.appendLine(
+          `Skipping ${chatId} "${metadata.name}" - last activity ${new Date(lastActivity).toISOString()} is before installation`
+        );
+        skippedPreExisting++;
+        continue;
+      }
+
+      await this.createThreadForChat(chatId, metadata.name);
+      created++;
     }
+
+    this.outputChannel.appendLine(
+      `Reconciliation complete: ${created} created, ${skippedPreExisting} skipped (pre-existing), ${skippedNoName} skipped (no name)`
+    );
   }
 }

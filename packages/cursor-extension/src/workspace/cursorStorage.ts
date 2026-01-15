@@ -27,6 +27,8 @@ interface ComposerHead {
 
 interface ComposerData {
   allComposers: ComposerHead[];
+  selectedComposerIds?: string[];
+  lastFocusedComposerIds?: string[];
 }
 
 /**
@@ -97,6 +99,8 @@ function getWorkspaceStoragePath(): string | undefined {
  * Returns undefined if the data cannot be read.
  */
 async function readComposerData(outputChannel?: vscode.OutputChannel): Promise<ComposerData | undefined> {
+  const queryStartTime = Date.now();
+  
   const storagePath = getWorkspaceStoragePath();
   if (!storagePath) {
     outputChannel?.appendLine('Could not find Cursor workspace storage path');
@@ -117,6 +121,9 @@ async function readComposerData(outputChannel?: vscode.OutputChannel): Promise<C
       timeout: 5000, // 5 second timeout
     });
 
+    const queryDuration = Date.now() - queryStartTime;
+    outputChannel?.appendLine(`[TIMING] sqlite3 query took ${queryDuration}ms`);
+
     if (!stdout.trim()) {
       outputChannel?.appendLine('No composer data found in database');
       return undefined;
@@ -125,9 +132,18 @@ async function readComposerData(outputChannel?: vscode.OutputChannel): Promise<C
     const composerData = JSON.parse(stdout.trim()) as ComposerData;
     return composerData;
   } catch (error: any) {
-    outputChannel?.appendLine(`Error reading composer data: ${error.message}`);
+    const queryDuration = Date.now() - queryStartTime;
+    outputChannel?.appendLine(`[TIMING] sqlite3 query failed after ${queryDuration}ms: ${error.message}`);
     return undefined;
   }
+}
+
+export interface ChatMetadata {
+  composerId: string;
+  name: string | undefined;
+  createdAt: number | undefined;
+  lastUpdatedAt: number | undefined;
+  isArchived: boolean;
 }
 
 /**
@@ -138,6 +154,37 @@ export async function getChatName(
   composerId: string,
   outputChannel?: vscode.OutputChannel
 ): Promise<string | undefined> {
+  const startTime = Date.now();
+  const composerData = await readComposerData(outputChannel);
+  if (!composerData) {
+    outputChannel?.appendLine(`[TIMING] getChatName(${composerId.substring(0, 8)}...) took ${Date.now() - startTime}ms (no data)`);
+    return undefined;
+  }
+
+  const composer = composerData.allComposers.find(c => c.composerId === composerId);
+  if (!composer) {
+    outputChannel?.appendLine(`[TIMING] getChatName(${composerId.substring(0, 8)}...) took ${Date.now() - startTime}ms (not found)`);
+    return undefined;
+  }
+
+  // Return the name if it exists and isn't empty
+  if (composer.name && composer.name.trim()) {
+    outputChannel?.appendLine(`[TIMING] getChatName(${composerId.substring(0, 8)}...) took ${Date.now() - startTime}ms, found: "${composer.name}"`);
+    return composer.name;
+  }
+
+  outputChannel?.appendLine(`[TIMING] getChatName(${composerId.substring(0, 8)}...) took ${Date.now() - startTime}ms (no name yet)`);
+  return undefined;
+}
+
+/**
+ * Get full metadata for a chat/composer by ID.
+ * Includes name, timestamps, and archive status.
+ */
+export async function getChatMetadata(
+  composerId: string,
+  outputChannel?: vscode.OutputChannel
+): Promise<ChatMetadata | undefined> {
   const composerData = await readComposerData(outputChannel);
   if (!composerData) {
     return undefined;
@@ -145,17 +192,16 @@ export async function getChatName(
 
   const composer = composerData.allComposers.find(c => c.composerId === composerId);
   if (!composer) {
-    outputChannel?.appendLine(`Composer ${composerId} not found in data`);
     return undefined;
   }
 
-  // Return the name if it exists and isn't empty
-  if (composer.name && composer.name.trim()) {
-    outputChannel?.appendLine(`Found chat name for ${composerId}: "${composer.name}"`);
-    return composer.name;
-  }
-
-  return undefined;
+  return {
+    composerId: composer.composerId,
+    name: composer.name && composer.name.trim() ? composer.name : undefined,
+    createdAt: composer.createdAt,
+    lastUpdatedAt: composer.lastUpdatedAt,
+    isArchived: composer.isArchived,
+  };
 }
 
 /**

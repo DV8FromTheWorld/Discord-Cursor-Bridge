@@ -279,10 +279,11 @@ function registerWorkspaceCommands(context: vscode.ExtensionContext): void {
   // 3. Wait for new mapping - thread hasn't been created yet
   context.subscriptions.push(
     vscode.commands.registerCommand(Commands.RESOLVE_THREAD_ID, async (): Promise<ResolveThreadIdResult> => {
-      outputChannel.appendLine(`[RESOLVE_THREAD_ID] Starting resolution...`);
+      const resolveStartTime = Date.now();
+      outputChannel.appendLine(`[RESOLVE_THREAD_ID] Starting resolution at ${new Date().toISOString()}...`);
       
       const mappings = discordClient.getChatMappings();
-      outputChannel.appendLine(`[RESOLVE_THREAD_ID] Available mappings:`);
+      outputChannel.appendLine(`[RESOLVE_THREAD_ID] Available mappings (${mappings.size} total):`);
       for (const [chatId, mapping] of mappings) {
         outputChannel.appendLine(`  - ${chatId} → ${mapping.threadId} (created: ${mapping.createdAt}, claimed: ${mapping.claimedAt || 'no'})`);
       }
@@ -291,47 +292,48 @@ function registerWorkspaceCommands(context: vscode.ExtensionContext): void {
       // This is most likely to be the current agent's chat - check it FIRST
       const pendingId = chatWatcher.getPendingComposerId();
       if (pendingId) {
-        outputChannel.appendLine(`[RESOLVE_THREAD_ID] Found pending composer ${pendingId}, trying to create thread...`);
+        outputChannel.appendLine(`[RESOLVE_THREAD_ID] Strategy 1: Found pending composer ${pendingId}, creating thread...`);
         
-        // First try immediately - maybe name just became available
-        const immediateResult = await chatWatcher.tryCreateThreadForPendingComposer();
-        if (immediateResult.success && immediateResult.threadId) {
-          outputChannel.appendLine(`[RESOLVE_THREAD_ID] Created thread for pending composer: ${immediateResult.chatId} → ${immediateResult.threadId}`);
-          await discordClient.markMappingClaimed(immediateResult.chatId!);
-          return { success: true, threadId: immediateResult.threadId, chatId: immediateResult.chatId, method: 'waited_for_new' };
+        // Create thread immediately - use real name if available, otherwise use placeholder
+        // NameSyncWatcher will rename the thread when the real name becomes available
+        const result = await chatWatcher.tryCreateThreadForPendingComposer();
+        if (result.success && result.threadId) {
+          const elapsed = Date.now() - resolveStartTime;
+          outputChannel.appendLine(`[RESOLVE_THREAD_ID] Strategy 1 SUCCESS: ${result.chatId} → ${result.threadId} in ${elapsed}ms`);
+          await discordClient.markMappingClaimed(result.chatId!);
+          return { success: true, threadId: result.threadId, chatId: result.chatId, method: 'waited_for_new' };
         }
         
-        // Wait for pending composer to get a name
-        outputChannel.appendLine(`[RESOLVE_THREAD_ID] Waiting for pending composer to get a name...`);
-        const waitResult = await chatWatcher.waitForPendingComposerThread(5000, 200);
-        if (waitResult.success && waitResult.threadId) {
-          outputChannel.appendLine(`[RESOLVE_THREAD_ID] Created thread after waiting: ${waitResult.chatId} → ${waitResult.threadId}`);
-          await discordClient.markMappingClaimed(waitResult.chatId!);
-          return { success: true, threadId: waitResult.threadId, chatId: waitResult.chatId, method: 'waited_for_new' };
-        }
-        
-        outputChannel.appendLine(`[RESOLVE_THREAD_ID] Pending composer still has no name after waiting`);
+        outputChannel.appendLine(`[RESOLVE_THREAD_ID] Strategy 1 FAILED: ${result.error}`);
       }
 
       // Strategy 2: Get recent (<30s) unclaimed mapping
       // Only grab fresh mappings to avoid stale orphaned threads from previous sessions
+      const strategy2Start = Date.now();
       const recentUnclaimed = discordClient.getRecentUnclaimedMapping(30000);
       if (recentUnclaimed) {
-        outputChannel.appendLine(`[RESOLVE_THREAD_ID] Using recent unclaimed: ${recentUnclaimed.chatId} → ${recentUnclaimed.threadId}`);
+        const elapsed = Date.now() - resolveStartTime;
+        outputChannel.appendLine(`[RESOLVE_THREAD_ID] Strategy 2 SUCCESS: Using recent unclaimed ${recentUnclaimed.chatId} → ${recentUnclaimed.threadId} in ${elapsed}ms`);
         await discordClient.markMappingClaimed(recentUnclaimed.chatId);
         return { success: true, threadId: recentUnclaimed.threadId, chatId: recentUnclaimed.chatId, method: 'latest_unclaimed' };
       }
+      outputChannel.appendLine(`[RESOLVE_THREAD_ID] Strategy 2 FAILED: No recent unclaimed mapping (checked in ${Date.now() - strategy2Start}ms)`);
 
       // Strategy 3: No pending composer, no recent mapping - wait for a new one
-      outputChannel.appendLine(`[RESOLVE_THREAD_ID] No recent mappings, waiting for new one...`);
-      const newMapping = await discordClient.waitForNewUnclaimedMapping(5000, 200, 30000);
+      const strategy3Start = Date.now();
+      outputChannel.appendLine(`[RESOLVE_THREAD_ID] Strategy 3: Waiting for new mapping...`);
+      const newMapping = await discordClient.waitForNewUnclaimedMapping(8000, 200, 30000);
+      const strategy3Elapsed = Date.now() - strategy3Start;
+      
       if (newMapping) {
-        outputChannel.appendLine(`[RESOLVE_THREAD_ID] New mapping appeared: ${newMapping.chatId} → ${newMapping.threadId}`);
+        const totalElapsed = Date.now() - resolveStartTime;
+        outputChannel.appendLine(`[RESOLVE_THREAD_ID] Strategy 3 SUCCESS: New mapping ${newMapping.chatId} → ${newMapping.threadId} in ${totalElapsed}ms (wait took ${strategy3Elapsed}ms)`);
         await discordClient.markMappingClaimed(newMapping.chatId);
         return { success: true, threadId: newMapping.threadId, chatId: newMapping.chatId, method: 'waited_for_new' };
       }
 
-      outputChannel.appendLine(`[RESOLVE_THREAD_ID] Failed to resolve thread ID`);
+      const totalElapsed = Date.now() - resolveStartTime;
+      outputChannel.appendLine(`[RESOLVE_THREAD_ID] ALL STRATEGIES FAILED after ${totalElapsed}ms`);
       return { success: false, error: 'Could not resolve thread ID: no mappings available' };
     })
   );
