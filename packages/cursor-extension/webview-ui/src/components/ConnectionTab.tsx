@@ -212,6 +212,10 @@ export default function ConnectionTab({ state }: Props) {
             </Row>
           ) : (
             <>
+              <Callout variant="warning">
+                <strong>Channel Required</strong><br />
+                Select or create a channel to enable the Discord bridge for this workspace.
+              </Callout>
               <Tabs 
                 tabs={channelTabs}
                 activeTab={channelTab}

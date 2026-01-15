@@ -239,6 +239,8 @@ export class WebviewPanelManager {
   private async handleSelectChannel(channelId: string, channelName: string): Promise<void> {
     if (!channelId) {
       await this.configManager.clearProjectConfig();
+      // Also notify workspace part to clear channel and update status
+      await vscode.commands.executeCommand(Commands.SELECT_CHANNEL, { channelId: '', channelName: '' });
       this.addLog('Channel cleared');
       return;
     }

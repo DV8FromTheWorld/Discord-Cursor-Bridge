@@ -141,14 +141,23 @@ export class DiscordClientManager {
         this.isConnected = true;
         this.outputChannel.appendLine(`Discord bot ready: ${readyClient.user.tag}`);
 
-        // Notify UI part of status update
-        vscode.commands.executeCommand(Commands.UPDATE_STATUS, {
-          status: 'connected',
-          details: `Connected as ${readyClient.user.tag}`,
-        });
-
         // Try to connect to the configured channel
         await this.connectToConfiguredChannel();
+
+        // Check if fully configured (has project channel)
+        const config = await vscode.commands.executeCommand<GetConfigResult>(Commands.GET_CONFIG);
+        if (config?.channelId) {
+          vscode.commands.executeCommand(Commands.UPDATE_STATUS, {
+            status: 'connected',
+            details: `Connected as ${readyClient.user.tag}`,
+          });
+        } else {
+          // Bot is connected but project channel not configured
+          vscode.commands.executeCommand(Commands.UPDATE_STATUS, {
+            status: 'setup-required',
+            details: 'Select a project channel',
+          });
+        }
 
         this.events.onReady();
         resolve();
@@ -362,11 +371,27 @@ export class DiscordClientManager {
   async selectChannel(channelId: string): Promise<boolean> {
     if (!this.client) return false;
     
+    // If channelId is empty, we're clearing the channel
+    if (!channelId) {
+      this.currentChannel = null;
+      this.outputChannel.appendLine('Channel cleared');
+      vscode.commands.executeCommand(Commands.UPDATE_STATUS, {
+        status: 'setup-required',
+        details: 'Select a project channel',
+      });
+      return true;
+    }
+    
     try {
       const channel = await this.client.channels.fetch(channelId);
       if (channel instanceof TextChannel) {
         this.currentChannel = channel;
         this.outputChannel.appendLine(`Selected channel #${channel.name}`);
+        // Update status to connected now that we have a channel
+        vscode.commands.executeCommand(Commands.UPDATE_STATUS, {
+          status: 'connected',
+          details: `Connected as ${this.client.user?.tag || 'bot'}`,
+        });
         return true;
       }
       return false;
