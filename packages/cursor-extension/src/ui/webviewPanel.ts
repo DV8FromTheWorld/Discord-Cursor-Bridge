@@ -15,14 +15,14 @@ import { ThreadCreationNotify, MessagePingMode } from '../shared/types';
 interface WebviewState {
   hasToken: boolean;
   connected: boolean;
-  botUsername?: string;
-  guildId?: string;
-  guildName?: string;
+  botUsername: string | null;
+  guildId: string | null;
+  guildName: string | null;
   guilds: GuildInfo[];
   channels: ChannelInfo[];
   categories: CategoryInfo[];
-  channelId?: string;
-  channelName?: string;
+  channelId: string | null;
+  channelName: string | null;
   workspaceName: string;
   inviteUrl: string | null;
   logs: string[];
@@ -360,14 +360,14 @@ export class WebviewPanelManager {
     const state: WebviewState = {
       hasToken,
       connected: status.connected,
-      botUsername: status.botUsername,
-      guildId: global?.guildId,
-      guildName: global?.guildName,
+      botUsername: status.botUsername ?? null,
+      guildId: global?.guildId ?? null,
+      guildName: global?.guildName ?? null,
       guilds,
       channels,
       categories,
-      channelId: project?.channelId,
-      channelName: project?.channelName,
+      channelId: project?.channelId ?? null,
+      channelName: project?.channelName ?? null,
       workspaceName: vscode.workspace.name || 'unnamed',
       inviteUrl,
       logs: this.logs,
