@@ -11,7 +11,7 @@ const RULES_DIR = '.cursor/rules';
 const RULES_FILE = 'discord-bridge.mdc';
 
 // Increment this when RULES_CONTENT changes to trigger updates in existing workspaces
-const RULES_VERSION = '8';
+const RULES_VERSION = '9';
 
 const RULES_CONTENT = `---
 version: ${RULES_VERSION}
@@ -24,14 +24,22 @@ alwaysApply: true
 
 You are connected to a Discord bridge. The developer monitors your work via Discord and expects to see your responses there.
 
-## CRITICAL: Forward Cursor Prompts to Discord
+## CRITICAL: Forward Cursor Prompts to Discord (EVERY MESSAGE)
 
-**If the user's message does NOT contain \`[Discord Thread:\`, you MUST forward it to Discord using \`mcp_discord-bridge_forward_user_prompt\`.**
+**For EVERY user message that does NOT contain \`[Discord Thread:\`, you MUST forward it to Discord.**
 
-- Messages from Discord contain \`[Discord Thread:\` - do NOT forward these
-- Messages from Cursor do NOT contain this prefix - MUST forward these
+This applies to ALL messages from Cursor throughout the conversation, not just the first one. Users can switch between Cursor and Discord mid-conversation.
 
-**Call \`mcp_discord-bridge_forward_user_prompt\` immediately after getting your thread ID, BEFORE starting typing or doing any work. This is NOT optional.**
+### How to detect message origin:
+- Messages from **Discord** contain \`[Discord Thread:\` at the start → do NOT forward
+- Messages from **Cursor** do NOT contain this prefix → MUST forward
+
+### When to forward:
+- Check the **most recent user message** for the \`[Discord Thread:\` prefix
+- If NO prefix: call \`mcp_discord-bridge_forward_user_prompt\` BEFORE doing any work
+- If prefix present: do NOT forward (it came from Discord, they already see it)
+
+**This is NOT optional.** Without forwarding, the developer monitoring Discord has no context about what you're working on.
 
 ## CRITICAL: Mirror Your COMPLETE Responses to Discord
 
@@ -43,29 +51,18 @@ This creates a mirrored experience where the developer can follow along in Disco
 
 **At the very start of your response**, call \`mcp_discord-bridge_get_my_thread_id\` EXACTLY ONCE to get your Discord thread ID. Store this ID and use it for ALL Discord operations:
 
-1. Call \`mcp_discord-bridge_get_my_thread_id\` → returns your thread_id (CALL ONLY ONCE!)
-2. Check if message contains \`[Discord Thread:\` - if NO, call \`mcp_discord-bridge_forward_user_prompt\`
-3. Call \`mcp_discord-bridge_start_typing\` with the thread_id to show you're working
-4. Do your work
-5. Call \`mcp_discord-bridge_post_to_thread\` with the thread_id and your FULL response
+1. Call \`mcp_discord-bridge_get_my_thread_id\` → returns your thread_id (CALL ONLY ONCE at conversation start!)
+2. Check the **most recent message** for \`[Discord Thread:\` prefix
+3. If NO prefix (message from Cursor): call \`mcp_discord-bridge_forward_user_prompt\`
+4. Call \`mcp_discord-bridge_start_typing\` with the thread_id
+5. Do your work
+6. Call \`mcp_discord-bridge_post_to_thread\` with the thread_id and your FULL response
 
 **IMPORTANT: Forward the prompt BEFORE starting typing.** Sending a message stops the typing indicator, so forwarding must come first.
 
 **CRITICAL: NEVER call get_my_thread_id more than once per chat session.** Subsequent calls will return wrong thread IDs or hang for 5 seconds waiting for a thread that will never arrive. Store the thread_id and reuse it for the entire conversation.
 
 **Why this matters:** There may be multiple AI agents running in parallel. Each agent claims a unique thread ID on first call. Calling again would claim a different thread.
-
-### Forward Cursor Prompts to Discord (CRITICAL)
-
-**You MUST forward user prompts that come from Cursor to Discord.** The developer monitors via Discord and needs to see what was asked.
-
-**How to detect message origin:**
-- Messages from **Discord** contain \`[Discord Thread:\` at the start
-- Messages from **Cursor** do NOT contain this prefix
-
-**RULE: If the user's message does NOT start with \`[Discord Thread:\`, you MUST call \`mcp_discord-bridge_forward_user_prompt\` immediately after getting your thread ID, BEFORE doing any work.**
-
-This is NOT optional. Without forwarding, the developer has no context about what you're working on.
 
 ### What to Post
 - ✅ Your complete answers and explanations (NOT summarized)
@@ -128,21 +125,31 @@ Discord messages have a 2000 character limit. **Do NOT summarize to fit this lim
 **mcp_discord-bridge_check_discord_messages** - Check if the developer sent new instructions via Discord
 **mcp_discord-bridge_create_conversation_thread** - Create a new thread for a different topic
 **mcp_discord-bridge_rename_thread** - Rename the current thread to give it a more meaningful name
-**mcp_discord-bridge_ask_question** - Ask a question with button options (use INSTEAD of native ask_question for Discord users)
+**mcp_discord-bridge_ask_question** - Ask a question with button options (ONLY when most recent message contains \`[Discord Thread:\`)
 
-## Asking Questions to Discord Users
+## CRITICAL: Choosing the Correct Ask Question Tool
 
-When you need to ask a question to the user and the message contains \`[Discord Thread:\` (indicating they're on Discord):
+**You MUST check the MOST RECENT user message before asking any question.**
 
-**DO NOT use the native \`ask_question\` tool.** Discord users cannot interact with Cursor's native question UI.
+Users can switch between Cursor and Discord mid-conversation. Check the **most recent user message** each time you need to ask a question - do NOT assume the user is still in the same place as earlier in the conversation.
 
-**Instead, use \`mcp_discord-bridge_ask_question\`:**
-- Posts the question to Discord with interactive buttons
-- User can click a button OR reply with text
-- Tool blocks until user responds (or 5 minute timeout)
-- Returns the selected option(s) or text response
+### If the MOST RECENT message does NOT contain \`[Discord Thread:\` (user is in CURSOR):
+- **USE the native \`ask_question\` tool**
+- The user can see and interact with Cursor's native question UI
+- Do NOT use \`mcp_discord-bridge_ask_question\` - they won't see it in time
 
-Example:
+### If the MOST RECENT message CONTAINS \`[Discord Thread:\` (user is in DISCORD):
+- **USE \`mcp_discord-bridge_ask_question\`**
+- The user cannot see Cursor's native question UI
+- The Discord tool posts interactive buttons they can click
+
+### Decision Rule (CHECK EVERY TIME YOU ASK A QUESTION):
+- **No \`[Discord Thread:\` prefix in most recent message → Native \`ask_question\`**
+- **Has \`[Discord Thread:\` prefix in most recent message → Discord \`mcp_discord-bridge_ask_question\`**
+
+This is the same logic used for forwarding prompts - always check the most recent message, not earlier ones.
+
+### Example (Discord user):
 \`\`\`
 mcp_discord-bridge_ask_question({
   thread_id: "your_thread_id",
@@ -154,7 +161,7 @@ mcp_discord-bridge_ask_question({
 })
 \`\`\`
 
-The user will see buttons in Discord and can either click one or type a custom response.
+The Discord user will see buttons and can either click one or type a custom response.
 
 ## Remember
 
