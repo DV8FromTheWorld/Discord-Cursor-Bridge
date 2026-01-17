@@ -74,6 +74,34 @@ Considered but rejected because:
 2. Workspace state stored in VS Code's workspaceState (per-workspace)
 3. Complexity of routing requests to correct workspace context
 
+### Window-Specific Focusing
+
+When Discord sends a message to Cursor, we need to focus the correct window:
+
+```typescript
+// Focus window by workspace name in title
+await focusCursor(workspaceName);
+// macOS: Uses System Events to find window containing workspace name
+// Windows: Uses PowerShell to enumerate windows and match by title
+// Linux: Uses wmctrl/xdotool with title matching
+```
+
+This ensures the message goes to the right project when multiple Cursor windows are open.
+
+### Slash Command Channel Ownership
+
+Multiple extension instances (one per Cursor window) connect to Discord with the same bot token. When a slash command like `/new-agent` is invoked:
+
+```typescript
+// Each extension checks if this is their channel
+if (interaction.channelId !== this.currentChannel?.id) {
+  return; // Not our channel, let another instance handle it
+}
+// Only the extension configured for this channel responds
+```
+
+This prevents duplicate responses and ensures commands work correctly with multiple projects.
+
 ## Remote IDE Support
 
 ### Problem

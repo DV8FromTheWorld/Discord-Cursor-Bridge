@@ -5,6 +5,7 @@ A bidirectional bridge between Discord and Cursor AI agent chats. Communicate wi
 ## Features
 
 - **Automatic Thread Creation**: New Cursor agent chats automatically get Discord threads
+- **Discord Slash Commands**: Use `/new-agent` in Discord to start new Cursor agent chats
 - **Bidirectional Messaging**: Messages flow both ways between Discord and Cursor
 - **Thread Archiving Sync**: Archive/unarchive chats in Cursor → Discord threads follow
 - **Implicit Archiving**: Old, untouched threads auto-archive based on configurable thresholds
@@ -140,6 +141,11 @@ The extension automatically configures `~/.cursor/mcp.json` with the bundled MCP
 2. **Message in the thread** → The message is sent to your Cursor agent
 3. **Agent responds** → Uses `post_to_thread` tool to reply in Discord
 
+**Or start from Discord:**
+1. Use `/new-agent` in your project channel
+2. Enter your prompt in the modal
+3. A new Cursor agent chat opens with your prompt, and a thread is created
+
 ## MCP Tools
 
 The AI agent has access to these tools:
@@ -166,6 +172,21 @@ Developer sends message → AI calls start_typing → AI processes → AI calls 
 ```
 
 The typing indicator refreshes automatically every 8 seconds until the AI posts a response.
+
+### Discord Slash Commands
+
+Start new agent chats directly from Discord:
+
+```
+/new-agent
+```
+
+A modal appears where you can enter your initial prompt. The extension:
+1. Creates a new agent chat in Cursor
+2. Sends your prompt to the agent
+3. ChatWatcher automatically creates a Discord thread
+
+**Multi-Window Support**: If you have multiple Cursor windows open (different projects), the command only responds in the channel configured for that project.
 
 ### Interactive Questions
 
