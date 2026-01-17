@@ -12,40 +12,131 @@ const execAsync = promisify(exec);
 export type Platform = 'darwin' | 'win32' | 'linux';
 
 /**
- * Focus the Cursor application window
+ * Focus a specific Cursor window by workspace name, or fall back to generic activation.
+ * @param workspaceName - Optional workspace folder name to match in window title
  */
-export async function focusCursor(): Promise<{ success: boolean; error?: string }> {
+export async function focusCursor(workspaceName?: string): Promise<{ success: boolean; error?: string }> {
   const platform = os.platform() as Platform;
 
   try {
     switch (platform) {
       case 'darwin':
-        // macOS: Activate Cursor using AppleScript
-        await execAsync('osascript -e \'tell application "Cursor" to activate\'');
-        // Small delay to ensure window is focused
+        if (workspaceName) {
+          // macOS: Use System Events to find and focus specific window by workspace name
+          const escapedName = workspaceName.replace(/"/g, '\\"').replace(/'/g, "'\\''");
+          const script = `
+            tell application "System Events"
+              tell process "Cursor"
+                set windowList to every window
+                repeat with w in windowList
+                  if name of w contains "${escapedName}" then
+                    perform action "AXRaise" of w
+                    set frontmost to true
+                    return "found"
+                  end if
+                end repeat
+              end tell
+            end tell
+            return "not_found"
+          `;
+          const { stdout } = await execAsync(`osascript -e '${script.replace(/'/g, "'\\''")}'`);
+          if (stdout.trim() === 'not_found') {
+            // Fallback to generic activation if window not found
+            await execAsync('osascript -e \'tell application "Cursor" to activate\'');
+          }
+        } else {
+          // Generic activation when no workspace name provided
+          await execAsync('osascript -e \'tell application "Cursor" to activate\'');
+        }
         await new Promise((resolve) => setTimeout(resolve, 100));
         break;
 
       case 'win32':
-        // Windows: Use PowerShell to bring Cursor to foreground
-        await execAsync(
-          'powershell -command "' +
-            '$cursor = Get-Process -Name Cursor -ErrorAction SilentlyContinue | Select-Object -First 1; ' +
-            'if ($cursor) { ' +
-            '  Add-Type -TypeDefinition \'using System; using System.Runtime.InteropServices; public class Win32 { [DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr hWnd); }\'; ' +
-            '  [Win32]::SetForegroundWindow($cursor.MainWindowHandle) ' +
-            '}"'
-        );
+        if (workspaceName) {
+          // Windows: Use PowerShell to find and focus specific window by title
+          const escapedName = workspaceName.replace(/"/g, '`"').replace(/'/g, "''");
+          await execAsync(
+            'powershell -command "' +
+              'Add-Type -TypeDefinition \'using System; using System.Runtime.InteropServices; using System.Text; public class Win32 { ' +
+              '[DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr hWnd); ' +
+              '[DllImport(\"user32.dll\")] public static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count); ' +
+              '[DllImport(\"user32.dll\")] public static extern bool IsWindowVisible(IntPtr hWnd); ' +
+              '}\'; ' +
+              '$found = $false; ' +
+              'Get-Process -Name Cursor -ErrorAction SilentlyContinue | ForEach-Object { ' +
+              '  $handle = $_.MainWindowHandle; ' +
+              '  if ($handle -ne [IntPtr]::Zero) { ' +
+              '    $sb = New-Object System.Text.StringBuilder 256; ' +
+              '    [Win32]::GetWindowText($handle, $sb, 256) | Out-Null; ' +
+              '    $title = $sb.ToString(); ' +
+              `    if ($title -like '*${escapedName}*') { ` +
+              '      [Win32]::SetForegroundWindow($handle); ' +
+              '      $found = $true; ' +
+              '      break; ' +
+              '    } ' +
+              '  } ' +
+              '}; ' +
+              'if (-not $found) { ' +
+              '  $cursor = Get-Process -Name Cursor -ErrorAction SilentlyContinue | Select-Object -First 1; ' +
+              '  if ($cursor) { [Win32]::SetForegroundWindow($cursor.MainWindowHandle) } ' +
+              '}"'
+          );
+        } else {
+          // Generic activation when no workspace name provided
+          await execAsync(
+            'powershell -command "' +
+              '$cursor = Get-Process -Name Cursor -ErrorAction SilentlyContinue | Select-Object -First 1; ' +
+              'if ($cursor) { ' +
+              '  Add-Type -TypeDefinition \'using System; using System.Runtime.InteropServices; public class Win32 { [DllImport(\"user32.dll\")] public static extern bool SetForegroundWindow(IntPtr hWnd); }\'; ' +
+              '  [Win32]::SetForegroundWindow($cursor.MainWindowHandle) ' +
+              '}"'
+          );
+        }
         await new Promise((resolve) => setTimeout(resolve, 100));
         break;
 
       case 'linux':
-        // Linux: Use wmctrl or xdotool to focus Cursor
-        try {
-          await execAsync('wmctrl -a Cursor');
-        } catch {
-          // Fallback to xdotool if wmctrl fails
-          await execAsync('xdotool search --name "Cursor" windowactivate');
+        if (workspaceName) {
+          // Linux: Use wmctrl to find and focus specific window by title
+          try {
+            // List all windows and find one with the workspace name
+            const { stdout } = await execAsync('wmctrl -l');
+            const lines = stdout.split('\n');
+            let windowId: string | null = null;
+            for (const line of lines) {
+              if (line.toLowerCase().includes(workspaceName.toLowerCase()) && line.toLowerCase().includes('cursor')) {
+                // Window ID is the first column
+                windowId = line.split(/\s+/)[0];
+                break;
+              }
+            }
+            if (windowId) {
+              await execAsync(`wmctrl -i -a ${windowId}`);
+            } else {
+              // Fallback to generic
+              await execAsync('wmctrl -a Cursor');
+            }
+          } catch {
+            // Fallback to xdotool if wmctrl fails
+            try {
+              const { stdout } = await execAsync(`xdotool search --name "${workspaceName}"`);
+              const windowIds = stdout.trim().split('\n').filter(id => id);
+              if (windowIds.length > 0) {
+                await execAsync(`xdotool windowactivate ${windowIds[0]}`);
+              } else {
+                await execAsync('xdotool search --name "Cursor" windowactivate');
+              }
+            } catch {
+              await execAsync('xdotool search --name "Cursor" windowactivate');
+            }
+          }
+        } else {
+          // Generic activation when no workspace name provided
+          try {
+            await execAsync('wmctrl -a Cursor');
+          } catch {
+            await execAsync('xdotool search --name "Cursor" windowactivate');
+          }
         }
         await new Promise((resolve) => setTimeout(resolve, 100));
         break;
@@ -68,23 +159,23 @@ export async function focusCursor(): Promise<{ success: boolean; error?: string 
 
 /**
  * Press the Enter key using platform-specific methods
+ * @param workspaceName - Optional workspace folder name to target specific window
  */
-export async function pressEnter(): Promise<{ success: boolean; error?: string }> {
+export async function pressEnter(workspaceName?: string): Promise<{ success: boolean; error?: string }> {
   const platform = os.platform() as Platform;
 
   try {
     switch (platform) {
       case 'darwin':
-        // macOS: Use AppleScript to activate Cursor and send Enter key
-        // We target Cursor specifically to ensure the key goes to the right app
-        await execAsync(
-          'osascript -e \'tell application "Cursor" to activate\' -e \'delay 0.1\' -e \'tell application "System Events" to key code 36\''
-        );
+        // macOS: Focus specific window first, then send Enter key
+        await focusCursor(workspaceName);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        await execAsync('osascript -e \'tell application "System Events" to key code 36\'');
         break;
 
       case 'win32':
         // Windows: Focus Cursor first, then send Enter
-        await focusCursor();
+        await focusCursor(workspaceName);
         await execAsync(
           'powershell -command "Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait(\'{ENTER}\')"'
         );
@@ -92,7 +183,7 @@ export async function pressEnter(): Promise<{ success: boolean; error?: string }
 
       case 'linux':
         // Linux: Focus Cursor first, then use xdotool
-        await focusCursor();
+        await focusCursor(workspaceName);
         await execAsync('xdotool key Return');
         break;
 
