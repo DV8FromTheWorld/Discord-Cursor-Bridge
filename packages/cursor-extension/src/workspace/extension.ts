@@ -143,6 +143,7 @@ function registerWorkspaceCommands(context: vscode.ExtensionContext): void {
     })
   );
 
+
   // Internal: UI → Workspace commands
   context.subscriptions.push(
     vscode.commands.registerCommand(Commands.POST_TO_THREAD, async (params: PostToThreadParams) => {

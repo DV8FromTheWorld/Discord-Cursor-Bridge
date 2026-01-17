@@ -12,9 +12,9 @@ import { ConfigManager } from './configManager';
 import { HttpServer } from './httpServer';
 import { StatusBarManager } from './statusBar';
 import { WebviewPanelManager } from './webviewPanel';
-import { sendMessageToChat } from './messageHandler';
+import { sendMessageToChat, sendMessageToFocusedChat } from './messageHandler';
 import { checkKeySimulationAvailable } from './keySimulation';
-import { Commands, SendToChatParams, GetConfigResult, SaveConfigParams, StatusUpdate } from '../shared/commands';
+import { Commands, SendToChatParams, GetConfigResult, SaveConfigParams, StatusUpdate, CreateNewAgentChatResult } from '../shared/commands';
 import { ConnectionStatus } from '../shared/types';
 
 let configManager: ConfigManager;
@@ -117,6 +117,32 @@ function registerUICommands(context: vscode.ExtensionContext): void {
         threadId,
         prependDirective: true,
       });
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(Commands.CREATE_NEW_AGENT_CHAT, async (): Promise<CreateNewAgentChatResult> => {
+      try {
+        outputChannel.appendLine('[CreateNewAgentChat] Creating new agent chat...');
+        
+        // Create new agent chat - it will be focused automatically
+        await vscode.commands.executeCommand('composer.newAgentChat');
+        
+        // Give it a moment to initialize
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        outputChannel.appendLine('[CreateNewAgentChat] New agent chat created and focused');
+        return { success: true };
+      } catch (error: any) {
+        outputChannel.appendLine(`[CreateNewAgentChat] Error: ${error.message}`);
+        return { success: false, error: error.message };
+      }
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand(Commands.SEND_TO_FOCUSED_CHAT, async (params: { message: string }) => {
+      return sendMessageToFocusedChat(params.message, outputChannel);
     })
   );
 

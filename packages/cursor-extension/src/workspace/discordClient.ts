@@ -27,6 +27,13 @@ import {
   MessageFlags,
   Interaction,
   ComponentType,
+  REST,
+  Routes,
+  ModalBuilder,
+  TextInputBuilder,
+  TextInputStyle,
+  ActionRowBuilder,
+  ModalActionRowComponentBuilder,
 } from 'discord.js';
 import * as vscode from 'vscode';
 import * as fs from 'fs';
@@ -144,9 +151,13 @@ export class DiscordClientManager {
         // Try to connect to the configured channel
         await this.connectToConfiguredChannel();
 
+        // Register slash commands for configured guild
+        // Note: config.token was validated above before login
+        await this.registerSlashCommands(config.token!, readyClient.user.id);
+
         // Check if fully configured (has project channel)
-        const config = await vscode.commands.executeCommand<GetConfigResult>(Commands.GET_CONFIG);
-        if (config?.channelId) {
+        const configAfterConnect = await vscode.commands.executeCommand<GetConfigResult>(Commands.GET_CONFIG);
+        if (configAfterConnect?.channelId) {
           vscode.commands.executeCommand(Commands.UPDATE_STATUS, {
             status: 'connected',
             details: `Connected as ${readyClient.user.tag}`,
@@ -1157,10 +1168,125 @@ export class DiscordClientManager {
   }
 
   /**
-   * Handle button interactions for ask_question responses.
+   * Handle Discord interactions (slash commands, modals, buttons).
    */
   private async handleInteraction(interaction: Interaction): Promise<void> {
-    // Only handle button interactions
+    // Handle slash commands
+    if (interaction.isChatInputCommand()) {
+      await this.handleSlashCommand(interaction);
+      return;
+    }
+
+    // Handle modal submissions
+    if (interaction.isModalSubmit()) {
+      await this.handleModalSubmit(interaction);
+      return;
+    }
+
+    // Handle button interactions (for ask_question)
+    if (interaction.isButton()) {
+      await this.handleButtonInteraction(interaction);
+      return;
+    }
+  }
+
+  /**
+   * Handle slash commands like /new-agent.
+   */
+  private async handleSlashCommand(interaction: Interaction): Promise<void> {
+    if (!interaction.isChatInputCommand()) return;
+
+    // Multi-instance check: only handle if this is our configured channel
+    if (interaction.channelId !== this.currentChannel?.id) {
+      this.outputChannel.appendLine(`[SlashCommand] Ignoring command in channel ${interaction.channelId} (not our channel ${this.currentChannel?.id})`);
+      return;
+    }
+
+    if (interaction.commandName === 'new-agent') {
+      this.outputChannel.appendLine('[SlashCommand] Handling /new-agent command');
+
+      // Create and show the modal
+      const modal = new ModalBuilder()
+        .setCustomId('new-agent-modal')
+        .setTitle('New Agent Chat');
+
+      const promptInput = new TextInputBuilder()
+        .setCustomId('prompt-input')
+        .setLabel('What would you like the agent to do?')
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder('Enter your prompt here...')
+        .setRequired(true)
+        .setMinLength(1)
+        .setMaxLength(4000);
+
+      const actionRow = new ActionRowBuilder<ModalActionRowComponentBuilder>()
+        .addComponents(promptInput);
+
+      modal.addComponents(actionRow);
+
+      await interaction.showModal(modal);
+    }
+  }
+
+  /**
+   * Handle modal submissions (e.g., from /new-agent).
+   */
+  private async handleModalSubmit(interaction: Interaction): Promise<void> {
+    if (!interaction.isModalSubmit()) return;
+
+    // Multi-instance check: only handle if this is our configured channel
+    if (interaction.channelId !== this.currentChannel?.id) {
+      this.outputChannel.appendLine(`[ModalSubmit] Ignoring modal in channel ${interaction.channelId} (not our channel ${this.currentChannel?.id})`);
+      return;
+    }
+
+    if (interaction.customId === 'new-agent-modal') {
+      const prompt = interaction.fields.getTextInputValue('prompt-input');
+      this.outputChannel.appendLine(`[ModalSubmit] Received prompt: ${prompt.substring(0, 50)}...`);
+
+      // Defer reply (ephemeral) since this will take a moment
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+      try {
+        // Step 1: Create a new agent chat (it will be focused automatically)
+        this.outputChannel.appendLine('[ModalSubmit] Creating new agent chat...');
+        const createResult = await vscode.commands.executeCommand<{ success: boolean; error?: string }>(
+          Commands.CREATE_NEW_AGENT_CHAT
+        );
+
+        if (!createResult?.success) {
+          await interaction.editReply(`❌ Failed to create agent chat: ${createResult?.error || 'Unknown error'}`);
+          return;
+        }
+
+        this.outputChannel.appendLine('[ModalSubmit] Agent chat created, sending prompt...');
+
+        // Step 2: Send the prompt to the focused chat (no chat ID needed)
+        const sendResult = await vscode.commands.executeCommand<{ success: boolean; error?: string }>(
+          Commands.SEND_TO_FOCUSED_CHAT,
+          { message: prompt }
+        );
+
+        if (!sendResult?.success) {
+          await interaction.editReply(`⚠️ Created chat but failed to send prompt: ${sendResult?.error}`);
+          return;
+        }
+
+        // Success! Thread will be created by ChatWatcher when it detects the new chat
+        await interaction.editReply(`✅ Started new agent chat! A Discord thread will appear shortly.`);
+        this.outputChannel.appendLine('[ModalSubmit] Successfully started agent chat from Discord');
+
+      } catch (error: any) {
+        this.outputChannel.appendLine(`[ModalSubmit] Error: ${error.message}`);
+        await interaction.editReply(`❌ Error: ${error.message}`);
+      }
+    }
+  }
+
+  /**
+   * Handle button interactions for ask_question responses.
+   */
+  private async handleButtonInteraction(interaction: Interaction): Promise<void> {
     if (!interaction.isButton()) return;
 
     const customId = interaction.customId;
@@ -1773,5 +1899,41 @@ export class DiscordClientManager {
     // Create Public/Private Threads, Send Messages in Threads, Manage Threads
     const permissions = 397284550672n;
     return `https://discord.com/oauth2/authorize?client_id=${clientId}&permissions=${permissions}&scope=bot`;
+  }
+
+  // ============ Slash Commands ============
+
+  /**
+   * Register slash commands for the configured guild.
+   * Guild-specific commands update instantly (vs global which take up to 1 hour).
+   */
+  private async registerSlashCommands(token: string, clientId: string): Promise<void> {
+    const config = await vscode.commands.executeCommand<GetConfigResult>(Commands.GET_CONFIG);
+    if (!config?.guildId) {
+      this.outputChannel.appendLine('[SlashCommands] No guild configured, skipping command registration');
+      return;
+    }
+
+    const commands = [
+      {
+        name: 'new-agent',
+        description: 'Create a new Cursor agent chat',
+      },
+    ];
+
+    try {
+      const rest = new REST({ version: '10' }).setToken(token);
+      
+      this.outputChannel.appendLine(`[SlashCommands] Registering commands for guild ${config.guildId}...`);
+      
+      await rest.put(
+        Routes.applicationGuildCommands(clientId, config.guildId),
+        { body: commands }
+      );
+      
+      this.outputChannel.appendLine('[SlashCommands] Successfully registered slash commands');
+    } catch (error: any) {
+      this.outputChannel.appendLine(`[SlashCommands] Failed to register commands: ${error.message}`);
+    }
   }
 }

@@ -61,6 +61,26 @@ await vscode.commands.executeCommand('composer.focusComposer');
 
 **Used for**: Preparing to paste a Discord message into the agent chat.
 
+### `composer.newAgentChat`
+
+```typescript
+await vscode.commands.executeCommand('composer.newAgentChat');
+```
+
+**What it does**: Creates a new agent chat in Cursor.
+
+**Key characteristics**:
+- Always creates a new chat (not a toggle like `Cmd+I`)
+- The new chat becomes the selected/focused chat
+- The new chat ID appears in `composer.getOrderedSelectedComposerIds` shortly after
+
+**Used for**: Creating new agent chats programmatically (e.g., from Discord `/new-agent` command).
+
+**Related commands**:
+- `composer.createNew` - Creates a new composer (may not default to agent mode)
+- `composer.createNewComposerTab` - Creates in a new tab
+- `aichat.newchataction` - Another option for creating chats
+
 ## SQLite Database Storage
 
 Cursor stores composer/chat data in an SQLite database at:

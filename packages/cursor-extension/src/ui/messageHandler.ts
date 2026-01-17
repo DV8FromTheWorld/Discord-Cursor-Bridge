@@ -4,7 +4,19 @@
  */
 
 import * as vscode from 'vscode';
+import * as path from 'path';
 import { pressEnter, focusCursor } from './keySimulation';
+
+/**
+ * Get the current workspace folder name for window targeting
+ */
+function getWorkspaceName(): string | undefined {
+  const workspaceFolders = vscode.workspace.workspaceFolders;
+  if (!workspaceFolders || workspaceFolders.length === 0) {
+    return undefined;
+  }
+  return path.basename(workspaceFolders[0].uri.fsPath);
+}
 
 export interface SendMessageResult {
   success: boolean;
@@ -48,9 +60,13 @@ export async function sendMessageToChat(
   try {
     outputChannel.appendLine(`Sending message to chat ${chatId.substring(0, 8)}...`);
 
+    // Get workspace name for targeting the correct window
+    const workspaceName = getWorkspaceName();
+    outputChannel.appendLine(`  Workspace name: ${workspaceName || '(not found)'}`);
+
     // Step 0: Focus Cursor window first to ensure all subsequent actions work
     outputChannel.appendLine('  Focusing Cursor window...');
-    const focusResult = await focusCursor();
+    const focusResult = await focusCursor(workspaceName);
     if (!focusResult.success) {
       outputChannel.appendLine(`  Warning: Could not focus Cursor: ${focusResult.error}`);
       // Continue anyway - might already be focused
@@ -75,7 +91,7 @@ export async function sendMessageToChat(
 
     // Step 4: Press Enter to submit (pressEnter also ensures Cursor is focused)
     outputChannel.appendLine('  Pressing Enter...');
-    const enterResult = await pressEnter();
+    const enterResult = await pressEnter(workspaceName);
 
     if (!enterResult.success) {
       return {
@@ -98,4 +114,52 @@ export async function sendMessageToChat(
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Send a message to the currently focused composer (no chat ID needed).
+ * Used when we just created a new agent chat and it's already focused.
+ */
+export async function sendMessageToFocusedChat(
+  message: string,
+  outputChannel: vscode.OutputChannel
+): Promise<SendMessageResult> {
+  try {
+    outputChannel.appendLine('Sending message to focused chat...');
+
+    // Get workspace name for targeting the correct window
+    const workspaceName = getWorkspaceName();
+
+    // Focus the composer input (should already be focused after newAgentChat)
+    outputChannel.appendLine('  Focusing composer...');
+    await vscode.commands.executeCommand('composer.focusComposer');
+    await delay(200);
+
+    // Paste the message
+    outputChannel.appendLine('  Pasting message...');
+    await vscode.env.clipboard.writeText(message);
+    await vscode.commands.executeCommand('editor.action.clipboardPasteAction');
+    await delay(200);
+
+    // Press Enter to submit
+    outputChannel.appendLine('  Pressing Enter...');
+    const enterResult = await pressEnter(workspaceName);
+
+    if (!enterResult.success) {
+      return {
+        success: false,
+        error: `Failed to press Enter: ${enterResult.error}`,
+      };
+    }
+
+    outputChannel.appendLine('  Message sent successfully!');
+    return { success: true };
+  } catch (error: any) {
+    const errorMsg = error.message || String(error);
+    outputChannel.appendLine(`  Error: ${errorMsg}`);
+    return {
+      success: false,
+      error: errorMsg,
+    };
+  }
 }

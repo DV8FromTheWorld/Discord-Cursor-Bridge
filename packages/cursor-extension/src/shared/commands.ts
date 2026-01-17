@@ -78,6 +78,12 @@ export const Commands = {
   /** Send a message to a Cursor chat (triggers key simulation) */
   SEND_TO_CHAT: 'discordBridge.internal.sendToChat',
   
+  /** Create a new agent chat and return its ID */
+  CREATE_NEW_AGENT_CHAT: 'discordBridge.internal.createNewAgentChat',
+  
+  /** Send a message to the currently focused chat (no chat ID needed) */
+  SEND_TO_FOCUSED_CHAT: 'discordBridge.internal.sendToFocusedChat',
+  
   /** Get configuration (token, guild, channel) */
   GET_CONFIG: 'discordBridge.internal.getConfig',
   
@@ -197,6 +203,13 @@ export interface SendToChatParams {
 
 export interface SendToChatResult {
   success: boolean;
+  error?: string;
+}
+
+export interface CreateNewAgentChatResult {
+  success: boolean;
+  /** The ID of the newly created chat */
+  chatId?: string;
   error?: string;
 }
 
