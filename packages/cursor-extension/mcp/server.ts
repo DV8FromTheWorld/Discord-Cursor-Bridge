@@ -548,7 +548,7 @@ class DiscordBridgeMCP {
         {
           name: 'ask_question',
           description:
-            'Ask a question to the Discord user and wait for their response. Use this INSTEAD of the native ask_question tool when the user is communicating via Discord (message contains "[Discord Thread:"). The question will be posted as interactive buttons in Discord, and the user can click a button or reply with text. The tool will block until the user responds or timeout (default 5 minutes).',
+            'Ask a question to the Discord user and wait for their response. Use this ONLY when the most recent user message contains "[Discord Thread:" - if it does NOT contain this prefix, use the native ask_question tool instead. The question will be posted as interactive buttons in Discord, and the user can click a button or reply with text. The tool will block until the user responds or timeout (default 5 minutes).',
           inputSchema: {
             type: 'object',
             properties: {

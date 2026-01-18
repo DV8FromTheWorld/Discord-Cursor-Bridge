@@ -11,7 +11,7 @@ const RULES_DIR = '.cursor/rules';
 const RULES_FILE = 'discord-bridge.mdc';
 
 // Increment this when RULES_CONTENT changes to trigger updates in existing workspaces
-const RULES_VERSION = '9';
+const RULES_VERSION = '10';
 
 const RULES_CONTENT = `---
 version: ${RULES_VERSION}
@@ -148,6 +148,9 @@ Users can switch between Cursor and Discord mid-conversation. Check the **most r
 - **Has \`[Discord Thread:\` prefix in most recent message → Discord \`mcp_discord-bridge_ask_question\`**
 
 This is the same logic used for forwarding prompts - always check the most recent message, not earlier ones.
+
+### WARNING: Common Mistake
+Do NOT default to using \`mcp_discord-bridge_ask_question\` just because it's available. **Most of the time, users are in Cursor**, so the native \`ask_question\` tool is the correct choice. Only use the Discord tool when you see \`[Discord Thread:\` in the most recent message.
 
 ### Example (Discord user):
 \`\`\`
